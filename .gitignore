@@ -1,0 +1,15 @@
+# 의존성 패키지 (용량 매우 큼)
+node_modules/
+
+# 빌드 결과물
+dist/
+
+# 환경 변수 및 보안 파일 (비밀번호 등)
+.env
+start.bat
+
+# 기타 OS 및 IDE 설정 파일
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
