@@ -38,7 +38,7 @@ SignalQueue.init({
     allowNull: true,
   },
   is_fetched: {
-    type: DataTypes.TINYINT,
+    type: DataTypes.SMALLINT,
     defaultValue: 0,
   }
 }, {

@@ -22,7 +22,7 @@ User.init({
     defaultValue: 'NONE',
   },
   is_online: {
-    type: DataTypes.TINYINT,
+    type: DataTypes.SMALLINT,
     defaultValue: 0,
   }
 }, {
