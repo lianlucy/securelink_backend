@@ -129,35 +129,42 @@ app.get('/api/fetch-signal', async (req: Request, res: Response) => {
             return res.status(400).json({ error: '정상적인 user_id 쿼리가 필요합니다.' });
         }
 
-        // 가장 오래된 획득하지 않은 신호 1건 추출
-        const currentSignal = await SignalQueue.findOne({
+        // 1. 미수신 신호 전체 조회 (findOne -> findAll)
+        const pendingSignals = await SignalQueue.findAll({
             where: { target_id: user_id, is_fetched: 0 },
             order: [['idx', 'ASC']]
         });
 
-        if (!currentSignal) {
-            return res.status(200).json({});
+        // 처리할 신호가 없으면 빈 배열 반환
+        if (!pendingSignals || pendingSignals.length === 0) {
+            return res.status(200).json([]);
         }
 
-        // 수신 플래그 업데이트
+        const signalIds = pendingSignals.map(s => s.idx);
+
+        // 2. 조회된 신호 일괄 수신 플래그 업데이트
         await SignalQueue.update(
             { is_fetched: 1 },
-            { where: { idx: currentSignal.idx } }
+            { where: { idx: signalIds } } // IN 조건으로 한 번에 업데이트
         );
 
-        console.log(`📲 [수신 배달 완료] 수신폰 ${user_id}에게 성공적으로 신호 밀어줌`);
-        
-        const actionType = (currentSignal.type === 'SMS') ? 'SMS_RECV' : 'CALL_RECV';
-        const logDetails = {
-            sender_id: currentSignal.sender_id,
-            from: currentSignal.from,
-            content: currentSignal.content
-        };
-        
-        // 💡 비동기 대기 보완
-        await insertTransactionLog(user_id, actionType, logDetails);
-        
-        return res.status(200).json(currentSignal);
+        console.log(`📲 [수신 배달 완료] 수신폰 ${user_id}에게 총 ${pendingSignals.length}건의 신호 밀어줌`);
+
+        // 3. 트랜잭션 로그 일괄 작성 (비동기 병렬 처리)
+        const logPromises = pendingSignals.map(signal => {
+            const actionType = (signal.type === 'SMS') ? 'SMS_RECV' : 'CALL_RECV';
+            const logDetails = {
+                sender_id: signal.sender_id,
+                from: signal.from,
+                content: signal.content
+            };
+            return insertTransactionLog(user_id, actionType, logDetails);
+        });
+        await Promise.all(logPromises);
+
+        // 4. 신호 목록 배열(Array) 형태로 리턴
+        return res.status(200).json(pendingSignals);
+
     } catch (err: any) {
         return res.status(500).json({ error: err.message });
     }
@@ -217,6 +224,28 @@ app.post('/api/signup', async (req: Request, res: Response) => {
         return res.status(200).json({ success: true });
     } catch (err: any) {
         return res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/device-log', (req: Request, res: Response) => {
+    try {
+        const { device_id, role, step, message, timestamp } = req.body;
+
+        // 역할(Role)에 따른 프리픽스 및 구분용 기호 설정
+        const deviceRole = role || (device_id?.includes('TRANSMITTER') ? 'TRANSMITTER' : 'RECEIVER');
+        const badge = deviceRole === 'TRANSMITTER' ? '📤 [TX]' : '📥 [RX]';
+
+        // 🖥️ 서버 터미널 콘솔에 한 줄로 깔끔하게 출력
+        console.log(
+            `[${timestamp || new Date().toISOString()}] ${badge} [${device_id || 'UNKNOWN'}] ` +
+            `[${step || 'LOG'}] ${message || ''}`
+        );
+
+        // 안드로이드 앱에 성공 응답 전달
+        res.status(200).json({ success: true, message: 'Log received' });
+    } catch (error) {
+        console.error('❌ 로그 처리 중 오류 발생:', error);
+        res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 });
 
